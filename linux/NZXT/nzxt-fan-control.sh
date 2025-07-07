@@ -150,7 +150,6 @@ function run_continuous_mode() {
         last_set_speed="$desired_speed"
       fi
 
-      info "Next check in ${CHECK_INTERVAL_SECONDS} seconds..."
       sleep "$CHECK_INTERVAL_SECONDS"
     done
 }
