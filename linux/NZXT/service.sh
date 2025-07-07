@@ -89,8 +89,6 @@ function configure_and_start_service() {
     info "Service enabled and started."
 }
 
-# --- Uninstall functions ---
-
 # Stops, disables, and removes the systemd service and script.
 function uninstall_service() {
     info "Starting uninstallation process for NZXT fan control service..."
