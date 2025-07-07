@@ -1,0 +1,16 @@
+[Unit]
+Description=NZXT Smart Device Fan Control Service
+After=network-online.target multi-user.target systemd-modules-load.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/nzxt-fan-control.sh
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nzxt-fan-control
+
+[Install]
+WantedBy=multi-user.target
