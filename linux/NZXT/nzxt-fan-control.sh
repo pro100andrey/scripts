@@ -59,6 +59,7 @@ function check_dependencies() {
         exit 1
       fi
     done
+
     info "All required dependencies are installed."
 }
 
@@ -76,6 +77,7 @@ function get_cpu_temp() {
     fi
 
     echo "$temp_output"
+
     return 0 # Indicate success
 }
 
@@ -122,6 +124,7 @@ function perform_single_adjustment() {
 
     desired_speed=$(calculate_speed "$current_temp")
     set_fan_speed "$desired_speed"
+    
     info "Fan speed set to ${desired_speed}% based on CPU temperature of ${current_temp}°C."
 }
 
