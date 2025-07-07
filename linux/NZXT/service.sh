@@ -34,7 +34,7 @@ function error() {
 function check_root() {
     if [[ "$EUID" -ne 0 ]]; then
         error "This script must be run as root."
-        error "Please run with: sudo ./install-nzxt-fan-control.sh"
+        error "Please run with: sudo ./service.sh <command>"
         exit 1
     fi
 }
@@ -118,7 +118,7 @@ function uninstall_service() {
     # Remove the service file
     if [[ -f "$SERVICE_FILE_DESTINATION_PATH" ]]; then
         info "Removing service file from '${SERVICE_FILE_DESTINATION_PATH}'..."
-        rm "$SERVICE_FILE_DESTINATION_PATH"
+        rm -f "$SERVICE_FILE_DESTINATION_PATH"
         info "Service file removed."
     else
         info "Service file not found at '${SERVICE_FILE_DESTINATION_PATH}', nothing to remove."
@@ -127,7 +127,7 @@ function uninstall_service() {
     # Remove the main script
     if [[ -f "$DESTINATION_SCRIPT_PATH" ]]; then
         info "Removing main script from '${DESTINATION_SCRIPT_PATH}'..."
-        rm "$DESTINATION_SCRIPT_PATH"
+        rm -f "$DESTINATION_SCRIPT_PATH"
         info "Main script removed."
     else
         info "Main script not found at '${DESTINATION_SCRIPT_PATH}', nothing to remove."
@@ -136,19 +136,33 @@ function uninstall_service() {
     info "Uninstallation complete!"
 }
 
+# Restarts the systemd service.
+function restart_service() {
+    info "Restarting '${SERVICE_NAME}'..."
+    if systemctl is-active --quiet "${SERVICE_NAME}"; then
+        systemctl restart "${SERVICE_NAME}"
+        info "'${SERVICE_NAME}' restarted successfully."
+    else
+        error "'${SERVICE_NAME}' is not active. Cannot restart. Please check its status or try to start it."
+        exit 1
+    fi
+}
+
 # Displays help message for the script.
 function display_help() {
     echo "Usage: sudo $(basename "$0") [command]"
     echo ""
-    echo "This script installs or uninstalls the NZXT Smart Device Fan Control service."
+    echo "This script installs, uninstalls, or restarts the NZXT Smart Device Fan Control service."
     echo ""
     echo "Commands:"
     echo "  install    Installs the fan control script and sets up the systemd service."
     echo "  uninstall  Stops, disables, and removes the service and the script."
+    echo "  restart    Restarts the NZXT fan control systemd service."
     echo ""
     echo "Example:"
     echo "  sudo ./$(basename "$0") install"
     echo "  sudo ./$(basename "$0") uninstall"
+    echo "  sudo ./$(basename "$0") restart"
 }
 
 function main() {
@@ -169,6 +183,9 @@ function main() {
             ;;
         "uninstall")
             uninstall_service
+            ;;
+        "restart")
+            restart_service
             ;;
         *)
             display_help
