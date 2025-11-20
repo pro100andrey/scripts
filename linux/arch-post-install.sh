@@ -474,6 +474,12 @@ pacman_configure() {
     update_config /etc/pacman.conf \
             "^#ParallelDownloads" \
             --msg "Enabling parallel downloads"
+
+    # Set to 15 parallel downloads
+    update_config /etc/pacman.conf \
+            "^ParallelDownloads" \
+            --value "15" \
+            --msg "Set parallel downloads to 15"
             
     # Color output
     update_config /etc/pacman.conf \
@@ -594,7 +600,7 @@ install_aur_packages() {
     
     check_sudo_user
     
-    if ! sudo -u "$SUDO_USER" yay -S --needed --noconfirm "${AUR_PACKAGES[@]}"; then
+    if ! sudo -u "$SUDO_USER" yay --sudoloop -S --needed --noconfirm "${AUR_PACKAGES[@]}"; then
         log_error "Failed to install some AUR packages (this may be non-critical)"
         # Don't exit, some packages may be unavailable
     else
@@ -608,6 +614,24 @@ configure_git() {
     run_as_user git config --global user.name "Andrii Ivanov"
     run_as_user git config --global user.email "this.andrey@gmail.com"
     run_as_user git config --global core.editor "code"
+
+    # SSH Key generation
+    local user_home
+    user_home=$(eval echo "~$SUDO_USER")
+    local ssh_key="$user_home/.ssh/id_ed25519"
+
+    if [[ ! -f "$ssh_key" ]]; then
+        log "Generating SSH key (ed25519)..."
+        # Ensure .ssh directory exists with correct permissions
+        run_as_user mkdir -p "$user_home/.ssh"
+        run_as_user chmod 700 "$user_home/.ssh"
+        
+        run_as_user ssh-keygen -t ed25519 -C "this.andrey@gmail.com" -f "$ssh_key" -N ""
+        log "SSH key generated."
+    else
+        log "SSH key already exists at $ssh_key"
+    fi
+
     log "Git configured"
 }
 
