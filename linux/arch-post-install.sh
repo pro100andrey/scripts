@@ -431,6 +431,13 @@ run_as_user() {
 
 update_mirrors() {
     log "Updating mirrorlist with reflector..."
+    
+    # Ensure reflector is installed
+    if ! command -v reflector &> /dev/null; then
+        log "Reflector not found. Installing..."
+        pacman -Sy --noconfirm reflector
+    fi
+
     # Save current mirrorlist
     if [[ ! -f /etc/pacman.d/mirrorlist.bak ]]; then
         cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.bak
@@ -898,7 +905,7 @@ main() {
     # Validation
     check_root
     check_sudo_user
-    # check_os
+    check_os
     check_internet
     
     # System configuration
