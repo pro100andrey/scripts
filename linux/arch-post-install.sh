@@ -476,10 +476,15 @@ configure_makepkg() {
     local cores=$(nproc)
     
     # Set MAKEFLAGS to use all cores
-    update_config "$makepkg_conf" "MAKEFLAGS" --value "\"-j$cores\"" --msg "MAKEFLAGS set to -j$cores"
+    update_config \
+        "$makepkg_conf" \
+        "MAKEFLAGS" --value "\"-j$cores\""\
+        --msg "MAKEFLAGS set to -j$cores"
 
     # Enable multi-threaded compression
-    update_config "$makepkg_conf" "COMPRESSXZ" --value "(xz -c -z - --threads=0)" --msg "Enabled multi-threaded compression for packages"
+    update_config "$makepkg_conf" \
+        "COMPRESSXZ" --value "(xz -c -z - --threads=0)" \
+        --msg "Enabled multi-threaded compression for packages"
 }
 
 pacman_enable_multilib() {
