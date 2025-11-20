@@ -1,9 +1,38 @@
 #!/bin/bash
 
-# This script performs post-installation steps for the Linux setup.
-# To be run as root (with sudo).
-# Example usage: sudo ./arch-post-install.sh
-# or curl -fsSL https://raw.githubusercontent.com/pro100andrey/scripts/main/linux/arch-post-install.sh | sudo bash
+# Arch Linux Post-Installation Script
+#
+# This script automates the post-installation setup of an Arch Linux system.
+# It performs the following tasks:
+# - System Configuration:
+#   - Updates mirrorlist using reflector
+#   - Configures Pacman (parallel downloads, color, multilib)
+#   - Optimizes Makepkg (parallel compilation)
+#   - Updates system packages
+# - Package Management:
+#   - Installs essential packages (development, utilities, fonts, applications)
+#   - Installs and configures 'yay' AUR helper
+#   - Installs AUR packages
+#   - Removes unnecessary packages
+# - Shell & Environment:
+#   - Installs and configures Zsh with Oh My Zsh
+#   - Installs Zsh plugins (autosuggestions, syntax-highlighting)
+#   - Configures aliases and environment variables (eza, fzf)
+# - Development Setup:
+#   - Installs Flutter SDK
+#   - Configures Docker
+#   - Configures Git
+# - System Services & Hardware:
+#   - Enables essential services (fstrim, network, time, bluetooth, firewall)
+#   - Configures wireless regulatory domain
+#   - Configures bootloader (systemd-boot)
+#
+# Usage:
+#   Run as root (sudo):
+#   sudo ./arch-post-install.sh
+#
+#   One-liner:
+#   curl -fsSL https://raw.githubusercontent.com/pro100andrey/scripts/main/linux/arch-post-install.sh | sudo bash
 
 # Exit on error, treat unset variables as error, fail on pipe errors
 set -euo pipefail
