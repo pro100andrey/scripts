@@ -61,3 +61,11 @@ if ! command -v yay &> /dev/null; then
     rm -rf "$temp_dir"
     echo "yay installed successfully."
 fi
+
+#install AUR packages
+yay -S --noconfirm \
+    google-chrome \
+    onlyoffice-bin \
+    android-studio \
+    lmstudio \
+    visual-studio-code-bin
