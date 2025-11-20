@@ -558,7 +558,7 @@ install_yay() {
     
     # Setup cleanup trap
     cleanup_yay() {
-        [[ -d "$yay_tmp_dir" ]] && rm -rf "$yay_tmp_dir"
+        [[ -d "${yay_tmp_dir:-}" ]] && rm -rf "${yay_tmp_dir:-}"
     }
     trap cleanup_yay RETURN
     
@@ -614,7 +614,7 @@ configure_bootloader() {
 configure_wireless() {
     log "Configuring wireless regulatory domain..."
     update_config "/etc/conf.d/wireless-regdom" \
-        "^#WIRELESS_REGDOM=\\\"UA\\\"" \
+        '^#WIRELESS_REGDOM="UA"' \
         --msg "Setting wireless regulatory domain to UA"
 }
 
