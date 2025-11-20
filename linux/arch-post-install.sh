@@ -11,16 +11,21 @@ if [[ "$EUID" -ne 0 ]]; then
     exit 1
 fi
 
-# Update /etc/pacman.config to enable multilib repository
+# Update /etc/pacman.conf to enable multilib repository
 if ! grep -q "^\[multilib\]" /etc/pacman.conf; then
     echo "Enabling multilib repository in /etc/pacman.conf..."
     sed -i '/#\[multilib\]/,/#Include = \/etc\/pacman.d\/mirrorlist/s/^#//' /etc/pacman.conf
     echo "Multilib repository enabled."
 else
+    echo "Multilib repository is already enabled."
+fi
 
 # Update package database and upgrade all packages
+echo "Updating system..."
 pacman -Syu --noconfirm
 
+# Install main packages
+echo "Installing main packages..."
 pacman -S --noconfirm \
     clang \
     cmake \
@@ -34,7 +39,7 @@ pacman -S --noconfirm \
     eza \
     fzf \
     nvtop \
-    hyperfine\
+    hyperfine \
     ttf-jetbrains-mono-nerd \
     ttf-hack-nerd \
     noto-fonts-cjk \
@@ -43,7 +48,7 @@ pacman -S --noconfirm \
     filelight \
     rssguard \
     obsidian \
-    telegram-desktop\
+    telegram-desktop \
     gwenview \
     gimp \
     inkscape \
@@ -60,9 +65,12 @@ if ! command -v yay &> /dev/null; then
     popd || exit
     rm -rf "$temp_dir"
     echo "yay installed successfully."
+else
+    echo "yay is already installed."
 fi
 
-#install AUR packages
+# Install AUR packages
+echo "Installing AUR packages..."
 yay -S --noconfirm \
     google-chrome \
     onlyoffice-bin \
@@ -70,4 +78,8 @@ yay -S --noconfirm \
     lmstudio \
     visual-studio-code-bin
 
-echo "Post-installation steps completed successfully."
+echo ""
+echo "=========================================="
+echo "Post-installation completed successfully!"
+echo "=========================================="
+echo ""
