@@ -164,6 +164,20 @@ AUR_PACKAGES=(
     visual-studio-code-bin
 )
 
+BG_WALLPAPERS=(
+    abstract-flower-5120x2880-17713.png
+    astronauts-7680x4320-15413.png
+    colorful-fish-ripple-purple-background-girly-backgrounds-4000x3000-7591.png
+    dark-abstract-3840x2160-18134.png
+    dark-background-abstract-background-network-3d-background-7680x4320-8324.png
+    gradient-shapes-8k-7680x4320-22806.png
+    microsoft-surface-3840x2638-9238.png
+    samsung-galaxy-s21-stock-amoled-particles-magenta-red-black-3200x3200-3961.png
+    translucent-3840x2160-22795.png
+    windows-11-abstract-3840x2160-20724.png
+    windows-11-waves-3840x2400-20750.png
+)
+
 #==============================================================================
 # Utility functions
 #==============================================================================
@@ -897,6 +911,91 @@ cleanup_cache() {
     fi
 }
 
+apply_theme() {
+    download_bg() {
+    local url="$1"
+    local dest="$2"
+    local max_attempts=5
+    local attempt=1
+    local exit_code=0
+    
+    while [ $attempt -le $max_attempts ]; do
+        log "Attempt $attempt of $max_attempts to download $url"
+        local http_code=$(curl -fsSL -w "%{http_code}" "$url" -o "$dest")
+        exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [[ "$http_code" =~ ^2[0-9]{2}$ ]]; then
+            return 0
+        fi
+        if [ "$http_code" == "429" ] || [ $exit_code -ne 0 ]; then
+            log_error "Download failed (HTTP $http_code, curl exit $exit_code). Retrying in $attempt seconds..."
+            if [ $attempt -eq $max_attempts ]; then
+                break
+            fi
+            sleep $attempt 
+            attempt=$((attempt + 1))
+        else
+            log_error "Fatal download error (HTTP $http_code). Aborting retries for this file."
+            return 1
+        fi
+    done
+
+    log_error "Failed to download wallpaper from $url after $max_attempts attempts."
+    return 1
+}
+
+    log "Downloading and applying wallpapers..."   
+    local user_home=$(eval echo "~$SUDO_USER")
+    local wallpapers_dir="$user_home/Pictures/Wallpapers"
+    # run_as_user mkdir -p "$wallpapers_dir"
+
+    local base_url="https://4kwallpapers.com/images/wallpapers/"
+    for wallpaper in "${BG_WALLPAPERS[@]}"; do
+        local url="${base_url}${wallpaper}"
+        local dest="${wallpapers_dir}/${wallpaper}"
+        if download_bg "$url" "$dest"; then
+            log "Downloaded wallpaper: $wallpaper"
+        else
+            log_error "Failed to download wallpaper: $wallpaper"
+        fi
+    done
+
+    log "Applying system theme..."
+    
+    # Get user's display and Wayland/X11 session info
+    local user_id=$(id -u "$SUDO_USER")
+    local display=$(who | grep "$SUDO_USER" | grep -oP ':\d+' | head -1)
+    local wayland_display=$(ls -1 /run/user/$user_id/ 2>/dev/null | grep -E '^wayland-[0-9]+$' | head -1)
+    
+    # Build environment variables for the command
+    local env_vars="XDG_RUNTIME_DIR=/run/user/$user_id DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$user_id/bus"
+    
+    if [[ -n "$wayland_display" ]]; then
+        env_vars="$env_vars WAYLAND_DISPLAY=$wayland_display"
+    elif [[ -n "$display" ]]; then
+        env_vars="$env_vars DISPLAY=$display"
+    fi
+    
+    # Apply theme as user with proper environment
+    sudo -u "$SUDO_USER" env $env_vars \
+        plasma-apply-desktoptheme breeze-dark || {
+        log_error "Failed to apply desktop theme. You may need to run this manually after login:"
+        log_error "  plasma-apply-desktoptheme breeze-dark"
+    }
+    
+    sudo -u "$SUDO_USER" env $env_vars \
+        plasma-apply-colorscheme BreezeDark || {
+        log_error "Failed to apply color scheme"
+    }
+    
+    sudo -u "$SUDO_USER" env $env_vars \
+        plasma-apply-wallpaperimage "$wallpapers_dir/dark-background-abstract-background-network-3d-background-7680x4320-8324.png" || {
+        log_error "Failed to apply wallpaper"
+    }
+
+    log "System theme applied"
+}
+
 #==============================================================================
 # Main function
 #==============================================================================
@@ -910,37 +1009,40 @@ main() {
     check_os
     check_internet
     
-    # System configuration
-    pacman_configure
-    configure_makepkg
-    pacman_enable_multilib
-    update_mirrors
-    pacman_update_system
+    # # System configuration
+    # pacman_configure
+    # configure_makepkg
+    # pacman_enable_multilib
+    # update_mirrors
+    # pacman_update_system
     
-    # Package management
-    pacman_cleanup_packages
-    pacman_install_main_packages
+    # # Package management
+    # pacman_cleanup_packages
+    # pacman_install_main_packages
     
-    # AUR setup
-    install_yay
-    install_aur_packages
+    # # AUR setup
+    # install_yay
+    # install_aur_packages
     
-    # Shell configuration (after git and zsh are installed)
-    install_ohmyzsh
-    configure_zshrc
+    # # Shell configuration (after git and zsh are installed)
+    # install_ohmyzsh
+    # configure_zshrc
     
-    # Common tools configuration
-    configure_docker
-    configure_git
-    configure_bootloader
-    configure_system_services
-    configure_wireless
+    # # Common tools configuration
+    # configure_docker
+    # configure_git
+    # configure_bootloader
+    # configure_system_services
+    # configure_wireless
     
-    # Development tools
-    install_flutter
+    # # Development tools
+    # install_flutter
     
-    # Cleanup
-    cleanup_cache
+    # # Cleanup
+    # cleanup_cache
+
+    # Apply theme
+    apply_theme
 }
 
 # Script entry point
