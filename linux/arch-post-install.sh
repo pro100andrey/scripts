@@ -174,11 +174,14 @@ _handle_kv_update() {
     local key="$2"
     local value="$3"
     local log_message="$4"
+    local delimiter="${5:-=}"
+    local run_cmd="${6:-}"
+    local insert_after="${7:-}"
 
     # Check if key is already set (uncommented)
-    if grep -q "^${key}=" "$file"; then
+    if $run_cmd grep -q "^${key}${delimiter}" "$file"; then
         local current_value
-        current_value=$(grep "^${key}=" "$file" | cut -d= -f2-)
+        current_value=$($run_cmd grep "^${key}${delimiter}" "$file" | cut -d"${delimiter}" -f2-)
         
         if [[ "$current_value" == "$value" ]]; then
             log "$key is already set to correct value"
@@ -201,19 +204,36 @@ _handle_kv_update() {
         local sed_value="${value//|/\\|}"
         sed_value="${sed_value//&/\\&}"
         
-        sed -i "s|^${key}=.*|${key}=${sed_value}|" "$file"
+        $run_cmd sed -i "s|^${key}${delimiter}.*|${key}${delimiter}${sed_value}|" "$file"
         log "$log_message"
         
-    elif grep -q "^#${key}=" "$file"; then
+    elif $run_cmd grep -q "^#${key}${delimiter}" "$file"; then
         # Commented out - uncomment and set
         local sed_value="${value//|/\\|}"
         sed_value="${sed_value//&/\\&}"
         
-        sed -i "s|^#${key}=.*|${key}=${sed_value}|" "$file"
+        $run_cmd sed -i "s|^#${key}${delimiter}.*|${key}${delimiter}${sed_value}|" "$file"
         log "$log_message"
     else
-        # Not found - append
-        echo "${key}=${value}" >> "$file"
+        # Not found - append or insert
+        local line="${key}${delimiter}${value}"
+        if [[ -n "$insert_after" ]]; then
+             # Escape insert_after for sed
+             local sed_insert="${insert_after//\//\\/}"
+             if $run_cmd grep -q "$insert_after" "$file"; then
+                 $run_cmd sed -i "/$sed_insert/a $line" "$file"
+                 log "$log_message (inserted)"
+                 return 0
+             fi
+             # Fallback to append if pattern not found
+             log "Pattern '$insert_after' not found, appending instead."
+        fi
+
+        if [[ -n "$run_cmd" ]]; then
+             echo "$line" | $run_cmd tee -a "$file" > /dev/null
+        else
+             echo "$line" >> "$file"
+        fi
         log "$log_message (appended)"
     fi
 }
@@ -224,38 +244,69 @@ _handle_uncomment() {
     local pattern="$2"
     local end_pattern="$3"
     local log_message="$4"
+    local run_cmd="${5:-}"
+    local insert_after="${6:-}"
 
     # Remove ^# prefix from pattern for checking if already uncommented
     local check_pattern="${pattern#^#}"
     
     # Check if already uncommented
-    if grep -q "^${check_pattern#^}" "$file" 2>/dev/null; then
+    if $run_cmd grep -q "^${check_pattern#^}" "$file" 2>/dev/null; then
         log "Configuration already active in $file"
         return 0
     fi
-    
-    log "$log_message in $file..."
     
     # Escape slashes in patterns to prevent sed syntax errors
     local sed_pattern="${pattern//\//\\/}"
     local sed_end_pattern="${end_pattern//\//\\/}"
     
-    # Uncomment lines
-    if [[ -n "$end_pattern" ]]; then
-        # Uncomment range
-        if ! sed -i "/${sed_pattern}/,/${sed_end_pattern}/ s/^#[[:space:]]*//" "$file"; then
-            log_error "Failed to uncomment lines in $file"
-            return 3
-        fi
+    # Check if commented out (simple check)
+    # If pattern is "Option", we look for "#Option" or "# Option"
+    # If pattern is "^#Option", we look for "^#Option"
+    local is_commented=false
+    if [[ "$pattern" == ^#* ]]; then
+         if $run_cmd grep -q "$pattern" "$file"; then is_commented=true; fi
     else
-        # Uncomment single line
-        if ! sed -i "/${sed_pattern}/ s/^#[[:space:]]*//" "$file"; then
-            log_error "Failed to uncomment lines in $file"
-            return 3
+         if $run_cmd grep -q "#[[:space:]]*$pattern" "$file"; then is_commented=true; fi
+    fi
+
+    if [[ "$is_commented" == "true" ]]; then
+        log "$log_message in $file..."
+        # Uncomment lines
+        if [[ -n "$end_pattern" ]]; then
+            # Uncomment range
+            if ! $run_cmd sed -i "/${sed_pattern}/,/${sed_end_pattern}/ s/^#[[:space:]]*//" "$file"; then
+                log_error "Failed to uncomment lines in $file"
+                return 3
+            fi
+        else
+            # Uncomment single line
+            if ! $run_cmd sed -i "/${sed_pattern}/ s/^#[[:space:]]*//" "$file"; then
+                log_error "Failed to uncomment lines in $file"
+                return 3
+            fi
+        fi
+        log "Configuration enabled successfully"
+        return 0
+    fi
+
+    # Not found - insert if requested
+    if [[ -n "$insert_after" ]]; then
+        log "$log_message (inserting)..."
+        local sed_insert="${insert_after//\//\\/}"
+        if $run_cmd grep -q "$insert_after" "$file"; then
+            $run_cmd sed -i "/$sed_insert/a $check_pattern" "$file"
+            log "Configuration inserted successfully"
+            return 0
+        else
+            log_error "Insert pattern '$insert_after' not found in $file"
+            return 1
         fi
     fi
     
-    log "Configuration enabled successfully"
+    # Not found and no insert instruction
+    log "Configuration '$pattern' not found in $file (and no insert location provided)"
+    return 1
 }
 
 # Update or uncomment configuration in a file
@@ -264,6 +315,9 @@ _handle_uncomment() {
 #   -v, --value VALUE       Set specific value (key=value format)
 #   -e, --end PATTERN       End pattern for range uncommenting
 #   -m, --msg MESSAGE       Log message
+#   -d, --delimiter DELIM   Delimiter between key and value (default: =)
+#   -a, --after PATTERN     Insert after this pattern if not found
+#   --user                  Run as SUDO_USER
 # Examples:
 #   update_config /etc/file.conf "^#Option" --msg "Enabling Option"
 #   update_config /etc/file.conf "KEY" --value "new_value" --msg "Updating KEY"
@@ -276,6 +330,10 @@ update_config() {
     local end_pattern=""
     local log_message="Updating configuration"
     local set_value=false
+    local delimiter="="
+    local run_as_user=false
+    local run_cmd=""
+    local insert_after=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -292,6 +350,18 @@ update_config() {
                 log_message="$2"
                 shift 2
                 ;;
+            -d|--delimiter)
+                delimiter="$2"
+                shift 2
+                ;;
+            -a|--after)
+                insert_after="$2"
+                shift 2
+                ;;
+            --user)
+                run_as_user=true
+                shift 1
+                ;;
             *)
                 log_error "Unknown option: $1"
                 return 1
@@ -299,15 +369,19 @@ update_config() {
         esac
     done
     
+    if [[ "$run_as_user" == "true" ]]; then
+        run_cmd="sudo -u $SUDO_USER"
+    fi
+    
     if [[ ! -f "$file" ]]; then
         log_error "File not found: $file"
         return 1
     fi
 
     if [[ "$set_value" == "true" ]]; then
-        _handle_kv_update "$file" "$pattern" "$value" "$log_message"
+        _handle_kv_update "$file" "$pattern" "$value" "$log_message" "$delimiter" "$run_cmd" "$insert_after"
     else
-        _handle_uncomment "$file" "$pattern" "$end_pattern" "$log_message"
+        _handle_uncomment "$file" "$pattern" "$end_pattern" "$log_message" "$run_cmd" "$insert_after"
     fi
     
     return 0
@@ -391,10 +465,9 @@ pacman_configure() {
             --msg "Enabling VerbosePkgLists"
             
     # Easter egg: ILoveCandy (Pac-Man eating dots)
-    if ! grep -q "ILoveCandy" /etc/pacman.conf; then
-        sed -i "/^Color/a ILoveCandy" /etc/pacman.conf
-        log "Enabled ILoveCandy"
-    fi
+    update_config /etc/pacman.conf "ILoveCandy" \
+        --after "^Color" \
+        --msg "Enabled ILoveCandy"
 }
 
 configure_makepkg() {
@@ -515,12 +588,10 @@ configure_bootloader() {
     local loader_conf="/boot/loader/loader.conf"
     
     if [[ -f "$loader_conf" ]]; then
-        if grep -q "^console-mode" "$loader_conf"; then
-            sed -i 's/^console-mode.*/console-mode max/' "$loader_conf"
-        else
-            echo "console-mode max" >> "$loader_conf"
-        fi
-        log "Bootloader console-mode set to max"
+        update_config "$loader_conf" "console-mode" \
+            --value "max" \
+            --delimiter " " \
+            --msg "Bootloader console-mode set to max"
     else
         log "Bootloader config not found at $loader_conf, skipping"
     fi
@@ -844,13 +915,15 @@ main() {
     install_ohmyzsh
     configure_zshrc
     
-    # Development tools
-    install_flutter
+    # Common tools configuration
     configure_docker
     configure_git
     configure_bootloader
     configure_system_services
     configure_wireless
+    
+    # Development tools
+    install_flutter
     
     # Cleanup
     cleanup_cache
