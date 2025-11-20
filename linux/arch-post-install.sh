@@ -553,6 +553,8 @@ install_yay() {
     
     log "Installing yay AUR helper..."
     local yay_tmp_dir=$(mktemp -d)
+    # Fix permissions so SUDO_USER can access and write to it
+    chown "$SUDO_USER" "$yay_tmp_dir"
     
     # Setup cleanup trap
     cleanup_yay() {
@@ -560,7 +562,7 @@ install_yay() {
     }
     trap cleanup_yay RETURN
     
-    git clone https://aur.archlinux.org/yay.git "$yay_tmp_dir" || {
+    run_as_user git clone https://aur.archlinux.org/yay.git "$yay_tmp_dir" || {
         log_error "Failed to clone yay repository"
         return 1
     }
