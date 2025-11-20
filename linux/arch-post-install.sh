@@ -138,26 +138,122 @@ log_error() {
 # Utility functions
 #==============================================================================
 
-# Uncomment lines in a configuration file
-# Usage: uncomment_config_lines FILE PATTERN [--end END_PATTERN] [--msg LOG_MESSAGE]
-# Examples:
-#   uncomment_config_lines /etc/file.conf "^\[section\]"
-#   uncomment_config_lines /etc/file.conf "^\[section\]" --end "^Include" --msg "Enabling section"
-# Returns:
-#   0 - success or already uncommented
-#   1 - file not found
-#   2 - backup failed
-#   3 - sed operation failed
-uncomment_config_lines() {
+# Internal function for key-value updates
+_handle_kv_update() {
     local file="$1"
-    local start_pattern="$2"
+    local key="$2"
+    local value="$3"
+    local log_message="$4"
+
+    # Check if key is already set (uncommented)
+    if grep -q "^${key}=" "$file"; then
+        local current_value
+        current_value=$(grep "^${key}=" "$file" | cut -d= -f2-)
+        
+        if [[ "$current_value" == "$value" ]]; then
+            log "$key is already set to correct value"
+            return 0
+        fi
+        
+        echo "Configuration mismatch for $key in $file"
+        echo "  Current: $current_value"
+        echo "  New:     $value"
+        
+        # Ask user for confirmation
+        read -p "Do you want to replace the current value? [y/N] " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            log "Skipping update for $key"
+            return 0
+        fi
+        
+        # Escape special chars for sed
+        local sed_value="${value//|/\\|}"
+        sed_value="${sed_value//&/\\&}"
+        
+        sed -i "s|^${key}=.*|${key}=${sed_value}|" "$file"
+        log "$log_message"
+        
+    elif grep -q "^#${key}=" "$file"; then
+        # Commented out - uncomment and set
+        local sed_value="${value//|/\\|}"
+        sed_value="${sed_value//&/\\&}"
+        
+        sed -i "s|^#${key}=.*|${key}=${sed_value}|" "$file"
+        log "$log_message"
+    else
+        # Not found - append
+        echo "${key}=${value}" >> "$file"
+        log "$log_message (appended)"
+    fi
+}
+
+# Internal function for uncommenting lines
+_handle_uncomment() {
+    local file="$1"
+    local pattern="$2"
+    local end_pattern="$3"
+    local log_message="$4"
+
+    # Remove ^# prefix from pattern for checking if already uncommented
+    local check_pattern="${pattern#^#}"
+    
+    # Check if already uncommented
+    if grep -q "^${check_pattern#^}" "$file" 2>/dev/null; then
+        log "Configuration already active in $file"
+        return 0
+    fi
+    
+    log "$log_message in $file..."
+    
+    # Escape slashes in patterns to prevent sed syntax errors
+    local sed_pattern="${pattern//\//\\/}"
+    local sed_end_pattern="${end_pattern//\//\\/}"
+    
+    # Uncomment lines
+    if [[ -n "$end_pattern" ]]; then
+        # Uncomment range
+        if ! sed -i "/${sed_pattern}/,/${sed_end_pattern}/ s/^#[[:space:]]*//" "$file"; then
+            log_error "Failed to uncomment lines in $file"
+            return 3
+        fi
+    else
+        # Uncomment single line
+        if ! sed -i "/${sed_pattern}/ s/^#[[:space:]]*//" "$file"; then
+            log_error "Failed to uncomment lines in $file"
+            return 3
+        fi
+    fi
+    
+    log "Configuration enabled successfully"
+}
+
+# Update or uncomment configuration in a file
+# Usage: update_config FILE PATTERN [OPTIONS]
+# Options:
+#   -v, --value VALUE       Set specific value (key=value format)
+#   -e, --end PATTERN       End pattern for range uncommenting
+#   -m, --msg MESSAGE       Log message
+# Examples:
+#   update_config /etc/file.conf "^#Option" --msg "Enabling Option"
+#   update_config /etc/file.conf "KEY" --value "new_value" --msg "Updating KEY"
+update_config() {
+    local file="$1"
+    local pattern="$2"
     shift 2
 
+    local value=""
     local end_pattern=""
-    local log_message="Uncommenting configuration"
+    local log_message="Updating configuration"
+    local set_value=false
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            -v|--value)
+                value="$2"
+                set_value=true
+                shift 2
+                ;;
             -e|--end)
                 end_pattern="$2"
                 shift 2
@@ -177,47 +273,13 @@ uncomment_config_lines() {
         log_error "File not found: $file"
         return 1
     fi
-    
-    # Remove ^# prefix from pattern for checking if already uncommented
-    local check_pattern="${start_pattern#^#}"
-    
-    # Check if already uncommented
-    if grep -q "^${check_pattern#^}" "$file" 2>/dev/null; then
-        log "Configuration already active in $file"
-        return 0
-    fi
-    
-    log "$log_message in $file..."
-    
-    # Create backup if not exists
-    if [[ ! -f "${file}.bak" ]]; then
-        if ! cp "$file" "${file}.bak"; then
-            log_error "Failed to create backup of $file"
-            return 2
-        fi
-    fi
-    
-    # Escape slashes in patterns to prevent sed syntax errors
-    local sed_start_pattern="${start_pattern//\//\\/}"
-    local sed_end_pattern="${end_pattern//\//\\/}"
-    
-    # Uncomment lines
-    if [[ -n "$end_pattern" ]]; then
-        # Uncomment range from start_pattern to end_pattern
-        # Also remove optional space after #
-        if ! sed -i "/${sed_start_pattern}/,/${sed_end_pattern}/ s/^#[[:space:]]*//" "$file"; then
-            log_error "Failed to uncomment lines in $file"
-            return 3
-        fi
+
+    if [[ "$set_value" == "true" ]]; then
+        _handle_kv_update "$file" "$pattern" "$value" "$log_message"
     else
-        # Uncomment only lines matching start_pattern
-        if ! sed -i "/${sed_start_pattern}/ s/^#[[:space:]]*//" "$file"; then
-            log_error "Failed to uncomment lines in $file"
-            return 3
-        fi
+        _handle_uncomment "$file" "$pattern" "$end_pattern" "$log_message"
     fi
     
-    log "Configuration enabled successfully"
     return 0
 }
 
@@ -284,17 +346,17 @@ pacman_configure() {
     log "Configuring Pacman..."
     
     # Parallel downloads
-    uncomment_config_lines /etc/pacman.conf \
+    update_config /etc/pacman.conf \
             "^#ParallelDownloads" \
             --msg "Enabling parallel downloads"
             
     # Color output
-    uncomment_config_lines /etc/pacman.conf \
+    update_config /etc/pacman.conf \
             "^#Color" \
             --msg "Enabling Color"
             
     # Verbose package lists
-    uncomment_config_lines /etc/pacman.conf \
+    update_config /etc/pacman.conf \
             "^#VerbosePkgLists" \
             --msg "Enabling VerbosePkgLists"
             
@@ -310,22 +372,16 @@ configure_makepkg() {
     local makepkg_conf="/etc/makepkg.conf"
     local cores=$(nproc)
     
-    # Uncomment and set MAKEFLAGS to use all cores
-    if grep -q "^#MAKEFLAGS=" "$makepkg_conf"; then
-        sed -i "s/^#MAKEFLAGS=.*/MAKEFLAGS=\"-j$cores\"/" "$makepkg_conf"
-        log "MAKEFLAGS set to -j$cores"
-    fi
+    # Set MAKEFLAGS to use all cores
+    update_config "$makepkg_conf" "MAKEFLAGS" --value "\"-j$cores\"" --msg "MAKEFLAGS set to -j$cores"
 
     # Enable multi-threaded compression
-    if grep -q "^COMPRESSXZ=" "$makepkg_conf"; then
-        sed -i "s/^COMPRESSXZ=.*/COMPRESSXZ=(xz -c -z - --threads=0)/" "$makepkg_conf"
-        log "Enabled multi-threaded compression for packages"
-    fi
+    update_config "$makepkg_conf" "COMPRESSXZ" --value "(xz -c -z - --threads=0)" --msg "Enabled multi-threaded compression for packages"
 }
 
 pacman_enable_multilib() {
     log "Checking multilib repository..."
-    uncomment_config_lines /etc/pacman.conf \
+    update_config /etc/pacman.conf \
             "^#\[multilib\]" \
             --end "^#Include = /etc/pacman.d/mirrorlist" \
             --msg "Enabling multilib repository" || {
@@ -442,7 +498,7 @@ configure_bootloader() {
 
 configure_wireless() {
     log "Configuring wireless regulatory domain..."
-    uncomment_config_lines "/etc/conf.d/wireless-regdom" \
+    update_config "/etc/conf.d/wireless-regdom" \
         "^#WIRELESS_REGDOM=\\\"UA\\\"" \
         --msg "Setting wireless regulatory domain to UA"
 }
@@ -556,6 +612,15 @@ install_ohmyzsh() {
     fi
     
     log "Oh My Zsh plugins installed successfully."
+
+    # Set Zsh as default shell
+    if [[ "$(getent passwd "$SUDO_USER" | cut -d: -f7)" != "/usr/bin/zsh" ]]; then
+        log "Setting Zsh as default shell for $SUDO_USER..."
+        chsh -s /usr/bin/zsh "$SUDO_USER"
+        log "Default shell changed to Zsh."
+    else
+        log "Zsh is already the default shell."
+    fi
 }
 
 install_flutter() {
@@ -729,7 +794,7 @@ main() {
     # Validation
     check_root
     check_sudo_user
-    check_os
+    # check_os
     check_internet
     
     # System configuration
