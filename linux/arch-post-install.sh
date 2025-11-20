@@ -62,7 +62,6 @@ MAIN_PACKAGES=(
     transmission-qt
     yakuake
     filelight
-    rssguard
     obsidian
     telegram-desktop
     gwenview
@@ -111,10 +110,10 @@ log_error() {
 #==============================================================================
 
 # Uncomment lines in a configuration file
-# Usage: uncomment_config_lines FILE PATTERN [END_PATTERN] [LOG_MESSAGE]
+# Usage: uncomment_config_lines FILE PATTERN [--end END_PATTERN] [--msg LOG_MESSAGE]
 # Examples:
 #   uncomment_config_lines /etc/file.conf "^\[section\]"
-#   uncomment_config_lines /etc/file.conf "^\[section\]" "^Include" "Enabling section"
+#   uncomment_config_lines /etc/file.conf "^\[section\]" --end "^Include" --msg "Enabling section"
 # Returns:
 #   0 - success or already uncommented
 #   1 - file not found
@@ -123,8 +122,27 @@ log_error() {
 uncomment_config_lines() {
     local file="$1"
     local start_pattern="$2"
-    local end_pattern="${3:-}"
-    local log_message="${4:-Uncommenting configuration}"
+    shift 2
+
+    local end_pattern=""
+    local log_message="Uncommenting configuration"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -e|--end)
+                end_pattern="$2"
+                shift 2
+                ;;
+            -m|--msg|--message)
+                log_message="$2"
+                shift 2
+                ;;
+            *)
+                log_error "Unknown option: $1"
+                return 1
+                ;;
+        esac
+    done
     
     if [[ ! -f "$file" ]]; then
         log_error "File not found: $file"
@@ -150,16 +168,21 @@ uncomment_config_lines() {
         fi
     fi
     
+    # Escape slashes in patterns to prevent sed syntax errors
+    local sed_start_pattern="${start_pattern//\//\\/}"
+    local sed_end_pattern="${end_pattern//\//\\/}"
+    
     # Uncomment lines
     if [[ -n "$end_pattern" ]]; then
         # Uncomment range from start_pattern to end_pattern
-        if ! sed -i "/${start_pattern}/,/${end_pattern}/ s/^#//" "$file"; then
+        # Also remove optional space after #
+        if ! sed -i "/${sed_start_pattern}/,/${sed_end_pattern}/ s/^#[[:space:]]*//" "$file"; then
             log_error "Failed to uncomment lines in $file"
             return 3
         fi
     else
         # Uncomment only lines matching start_pattern
-        if ! sed -i "/${start_pattern}/ s/^#//" "$file"; then
+        if ! sed -i "/${sed_start_pattern}/ s/^#[[:space:]]*//" "$file"; then
             log_error "Failed to uncomment lines in $file"
             return 3
         fi
@@ -218,7 +241,8 @@ update_mirrors() {
         cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.bak
     fi
     
-    if ! reflector --latest 20 --protocol https --sort rate --save /etc/pacman.d/mirrorlist; then
+    # Get 20 latest mirrors, sort by rate, and keep top 10
+    if ! reflector --latest 20 --number 10 --protocol https --sort rate --save /etc/pacman.d/mirrorlist; then
         log_error "Failed to update mirrorlist"
         # Restore backup if failed
         cp /etc/pacman.d/mirrorlist.bak /etc/pacman.d/mirrorlist
@@ -233,20 +257,17 @@ pacman_configure() {
     # Parallel downloads
     uncomment_config_lines /etc/pacman.conf \
             "^#ParallelDownloads" \
-            "" \
-            "Enabling parallel downloads"
+            --msg "Enabling parallel downloads"
             
     # Color output
     uncomment_config_lines /etc/pacman.conf \
             "^#Color" \
-            "" \
-            "Enabling Color"
+            --msg "Enabling Color"
             
     # Verbose package lists
     uncomment_config_lines /etc/pacman.conf \
             "^#VerbosePkgLists" \
-            "" \
-            "Enabling VerbosePkgLists"
+            --msg "Enabling VerbosePkgLists"
             
     # Easter egg: ILoveCandy (Pac-Man eating dots)
     if ! grep -q "ILoveCandy" /etc/pacman.conf; then
@@ -265,14 +286,20 @@ configure_makepkg() {
         sed -i "s/^#MAKEFLAGS=.*/MAKEFLAGS=\"-j$cores\"/" "$makepkg_conf"
         log "MAKEFLAGS set to -j$cores"
     fi
+
+    # Enable multi-threaded compression
+    if grep -q "^COMPRESSXZ=" "$makepkg_conf"; then
+        sed -i "s/^COMPRESSXZ=.*/COMPRESSXZ=(xz -c -z - --threads=0)/" "$makepkg_conf"
+        log "Enabled multi-threaded compression for packages"
+    fi
 }
 
 pacman_enable_multilib() {
     log "Checking multilib repository..."
     uncomment_config_lines /etc/pacman.conf \
             "^#\[multilib\]" \
-            "^#Include = /etc/pacman.d/mirrorlist" \
-            "Enabling multilib repository" || {
+            --end "^#Include = /etc/pacman.d/mirrorlist" \
+            --msg "Enabling multilib repository" || {
         log_error "Failed to enable multilib repository"
         exit 1
     }
@@ -388,8 +415,7 @@ configure_wireless() {
     log "Configuring wireless regulatory domain..."
     uncomment_config_lines "/etc/conf.d/wireless-regdom" \
         "^#WIRELESS_REGDOM=\\\"UA\\\"" \
-        "" \
-        "Setting wireless regulatory domain to UA"
+        --msg "Setting wireless regulatory domain to UA"
 }
 
 configure_system_services() {
