@@ -37,8 +37,50 @@
 # Exit on error, treat unset variables as error, fail on pipe errors
 set -euo pipefail
 
+
+#==============================================================================
+# Logging functions
+#==============================================================================
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[0;33m'
+NC='\033[0m' # No Color
+
+log() {
+    echo -e "${BLUE}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} $*${NC}"
+}
+
+log_error() {
+    echo -e "${BLUE}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} ${RED}ERROR: $*${NC}" >&2
+}
+
+#==============================================================================
+# Exit handler
+#==============================================================================
+
+START_TIME=$(date +%s)
+
+on_exit() {
+    local exit_code=$?
+    local end_time=$(date +%s)
+    local duration=$((end_time - START_TIME))
+    
+    echo "=========================================="
+    if [[ $exit_code -eq 0 ]]; then
+        echo -e "${GREEN}Post-installation completed successfully!${NC}"
+    else
+        echo -e "${RED}Post-installation failed with exit code $exit_code.${NC}"
+    fi
+    echo -e "${GREEN}Took: ${duration}s${NC}"
+    echo "=========================================="
+}
+
 # Trap errors and cleanup
 trap 'echo "Error occurred at line $LINENO. Exit code: $?"; exit 1' ERR
+trap on_exit EXIT
 
 #==============================================================================
 # Configuration
@@ -121,18 +163,6 @@ AUR_PACKAGES=(
     lmstudio
     visual-studio-code-bin
 )
-
-#==============================================================================
-# Logging functions
-#==============================================================================
-
-log() {
-    echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*"
-}
-
-log_error() {
-    echo "[$(date +'%Y-%m-%d %H:%M:%S')] ERROR: $*" >&2
-}
 
 #==============================================================================
 # Utility functions
@@ -787,8 +817,6 @@ cleanup_cache() {
 #==============================================================================
 
 main() {
-    local start_time=$(date +%s)
-    
     log "Starting Arch Linux post-installation setup..."
     
     # Validation
@@ -826,17 +854,6 @@ main() {
     
     # Cleanup
     cleanup_cache
-    
-    # Summary
-    local end_time=$(date +%s)
-    local duration=$((end_time - start_time))
-    
-    log ""
-    log "=========================================="
-    log "Post-installation completed successfully!"
-    log "Total time: ${duration}s"
-    log "=========================================="
-    log ""
 }
 
 # Script entry point
