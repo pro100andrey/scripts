@@ -1,12 +1,98 @@
 #!/bin/bash
 
 # This script performs post-installation steps for the Linux setup.
+# To be run as root (with sudo).
+# Example usage: sudo ./arch-post-install.sh
+# or curl -fsSL https://raw.githubusercontent.com/pro100andrey/scripts/main/linux/arch-post-install.sh | sudo bash
 
 # Exit on error, treat unset variables as error, fail on pipe errors
 set -euo pipefail
 
 # Trap errors and cleanup
 trap 'echo "Error occurred at line $LINENO. Exit code: $?"; exit 1' ERR
+
+#==============================================================================
+# Configuration
+#==============================================================================
+
+MAIN_PACKAGES=(
+    # Development tools
+    clang
+    cmake
+    ninja
+    git
+    docker
+    docker-compose
+    
+    # Shell and utilities
+    stress-ng
+    zsh
+    unzip
+    zip
+    less
+    tree
+    eza
+    fzf
+    bat
+    fd
+    ripgrep
+    reflector
+    btop
+    fastfetch
+    pacman-contrib
+    
+    # System
+    ufw
+    bluez
+    bluez-utils
+    wireless-regdb
+    
+    # System monitoring
+    nvtop
+    hyperfine
+    
+    # Fonts
+    ttf-jetbrains-mono-nerd
+    ttf-hack-nerd
+    noto-fonts-cjk
+    
+    # Applications
+    audacity
+    vlc
+    transmission-qt
+    yakuake
+    filelight
+    rssguard
+    obsidian
+    telegram-desktop
+    gwenview
+    gimp
+    inkscape
+    okular
+    zed
+
+    # Games
+    lutris
+    lib32-vulkan-utility-libraries
+)
+
+CLEANUP_PACKAGES=(
+    # System utilities
+    vim
+    # Applications
+    kate
+)
+
+AUR_PACKAGES=(
+    #Utils
+    wrk
+    #Applications
+    google-chrome
+    onlyoffice-bin
+    android-studio
+    lmstudio
+    visual-studio-code-bin
+)
 
 #==============================================================================
 # Logging functions
@@ -56,10 +142,12 @@ uncomment_config_lines() {
     
     log "$log_message in $file..."
     
-    # Create backup
-    if ! cp "$file" "${file}.bak"; then
-        log_error "Failed to create backup of $file"
-        return 2
+    # Create backup if not exists
+    if [[ ! -f "${file}.bak" ]]; then
+        if ! cp "$file" "${file}.bak"; then
+            log_error "Failed to create backup of $file"
+            return 2
+        fi
     fi
     
     # Uncomment lines
@@ -93,15 +181,91 @@ check_root() {
 }
 
 check_sudo_user() {
-    if ! command -v sudo &> /dev/null || [[ -z "${SUDO_USER:-}" ]]; then
+    if [[ -z "${SUDO_USER:-}" ]]; then
         log_error "Cannot run commands as non-root user: must run with sudo"
         exit 1
     fi
 }
 
+check_os() {
+    if [[ ! -f /etc/arch-release ]]; then
+        log_error "This script is designed for Arch Linux only"
+        exit 1
+    fi
+}
+
+check_internet() {
+    log "Checking internet connection..."
+    if ! ping -c 1 archlinux.org &> /dev/null; then
+        log_error "No internet connection. Please connect to the internet and try again."
+        exit 1
+    fi
+}
+
+# Helper function to run commands as SUDO_USER
+run_as_user() {
+    sudo -u "$SUDO_USER" "$@"
+}
+
 #==============================================================================
 # System configuration functions
 #==============================================================================
+
+update_mirrors() {
+    log "Updating mirrorlist with reflector..."
+    # Save current mirrorlist
+    if [[ ! -f /etc/pacman.d/mirrorlist.bak ]]; then
+        cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.bak
+    fi
+    
+    if ! reflector --latest 20 --protocol https --sort rate --save /etc/pacman.d/mirrorlist; then
+        log_error "Failed to update mirrorlist"
+        # Restore backup if failed
+        cp /etc/pacman.d/mirrorlist.bak /etc/pacman.d/mirrorlist
+        return 1
+    fi
+    log "Mirrorlist updated successfully"
+}
+
+pacman_configure() {
+    log "Configuring Pacman..."
+    
+    # Parallel downloads
+    uncomment_config_lines /etc/pacman.conf \
+            "^#ParallelDownloads" \
+            "" \
+            "Enabling parallel downloads"
+            
+    # Color output
+    uncomment_config_lines /etc/pacman.conf \
+            "^#Color" \
+            "" \
+            "Enabling Color"
+            
+    # Verbose package lists
+    uncomment_config_lines /etc/pacman.conf \
+            "^#VerbosePkgLists" \
+            "" \
+            "Enabling VerbosePkgLists"
+            
+    # Easter egg: ILoveCandy (Pac-Man eating dots)
+    if ! grep -q "ILoveCandy" /etc/pacman.conf; then
+        sed -i "/^Color/a ILoveCandy" /etc/pacman.conf
+        log "Enabled ILoveCandy"
+    fi
+}
+
+configure_makepkg() {
+    log "Optimizing makepkg build flags..."
+    local makepkg_conf="/etc/makepkg.conf"
+    local cores=$(nproc)
+    
+    # Uncomment and set MAKEFLAGS to use all cores
+    if grep -q "^#MAKEFLAGS=" "$makepkg_conf"; then
+        sed -i "s/^#MAKEFLAGS=.*/MAKEFLAGS=\"-j$cores\"/" "$makepkg_conf"
+        log "MAKEFLAGS set to -j$cores"
+    fi
+}
 
 pacman_enable_multilib() {
     log "Checking multilib repository..."
@@ -130,46 +294,7 @@ pacman_update_system() {
 pacman_install_main_packages() {
     log "Installing main packages..."
     
-    local packages=(
-        # Development tools
-        clang
-        cmake
-        ninja
-        git
-        
-        # Shell and utilities
-        zsh
-        unzip
-        zip
-        less
-        tree
-        eza
-        fzf
-        
-        # System monitoring
-        nvtop
-        hyperfine
-        
-        # Fonts
-        ttf-jetbrains-mono-nerd
-        ttf-hack-nerd
-        noto-fonts-cjk
-        
-        # Applications
-        transmission-qt
-        yakuake
-        filelight
-        rssguard
-        obsidian
-        telegram-desktop
-        gwenview
-        gimp
-        inkscape
-        okular
-        zed
-    )
-    
-    if ! pacman -S --noconfirm "${packages[@]}"; then
+    if ! pacman -S --needed --noconfirm "${MAIN_PACKAGES[@]}"; then
         log_error "Failed to install main packages"
         exit 1
     fi
@@ -179,18 +304,8 @@ pacman_install_main_packages() {
 
 pacman_cleanup_packages() {
     log "Uninstalling unnecessary packages..."
-
-    check_sudo_user
     
-    local packages=(
-        # System utilities
-        vim
-
-        # Applications
-        kate
-    )
-    
-    if ! pacman -Rns --noconfirm "${packages[@]}"; then
+    if ! pacman -Rns --noconfirm "${CLEANUP_PACKAGES[@]}"; then
         log_error "Failed to uninstall some packages (this may be non-critical)"
         # Don't exit, some packages may be already removed
     else
@@ -212,29 +327,21 @@ install_yay() {
     log "Installing yay AUR helper..."
     local yay_tmp_dir=$(mktemp -d)
     
-    trap cleanup_yay_temp EXIT
+    # Setup cleanup trap
+    cleanup_yay() {
+        [[ -d "$yay_tmp_dir" ]] && rm -rf "$yay_tmp_dir"
+    }
+    trap cleanup_yay RETURN
     
-    if ! git clone https://aur.archlinux.org/yay.git "$yay_tmp_dir"; then
+    git clone https://aur.archlinux.org/yay.git "$yay_tmp_dir" || {
         log_error "Failed to clone yay repository"
-        exit 1
-    fi
+        return 1
+    }
     
-    pushd "$yay_tmp_dir" > /dev/null || exit 1
-    
-    log "Building yay as $SUDO_USER..."
-    if ! sudo -u "$SUDO_USER" makepkg -si --noconfirm; then
+    (cd "$yay_tmp_dir" && run_as_user makepkg -si --noconfirm) || {
         log_error "Failed to build yay"
-        popd > /dev/null
-        exit 1
-    fi
-    
-    popd > /dev/null || exit 1
-    trap - EXIT
-    # Cleanup temporary directory
-    if [[ -n "${yay_tmp_dir:-}" ]] && [[ -d "$yay_tmp_dir" ]]; then
-        log "Cleaning up temporary directory..."
-        rm -rf "$yay_tmp_dir"
-    fi
+        return 1
+    }
     
     log "yay installed successfully."
 }
@@ -244,15 +351,7 @@ install_aur_packages() {
     
     check_sudo_user
     
-    local aur_packages=(
-        google-chrome
-        onlyoffice-bin
-        android-studio
-        lmstudio
-        visual-studio-code-bin
-    )
-    
-    if ! sudo -u "$SUDO_USER" yay -S --noconfirm "${aur_packages[@]}"; then
+    if ! sudo -u "$SUDO_USER" yay -S --needed --noconfirm "${AUR_PACKAGES[@]}"; then
         log_error "Failed to install some AUR packages (this may be non-critical)"
         # Don't exit, some packages may be unavailable
     else
@@ -260,31 +359,364 @@ install_aur_packages() {
     fi
 }
 
+configure_git() {
+    log "Configuring Git..."
+    run_as_user git config --global init.defaultBranch main
+    run_as_user git config --global user.name "Andrii Ivanov"
+    run_as_user git config --global user.email "this.andrey@gmail.com"
+    run_as_user git config --global core.editor "code"
+    log "Git configured"
+}
+
+configure_bootloader() {
+    log "Configuring bootloader..."
+    local loader_conf="/boot/loader/loader.conf"
+    
+    if [[ -f "$loader_conf" ]]; then
+        if grep -q "^console-mode" "$loader_conf"; then
+            sed -i 's/^console-mode.*/console-mode max/' "$loader_conf"
+        else
+            echo "console-mode max" >> "$loader_conf"
+        fi
+        log "Bootloader console-mode set to max"
+    else
+        log "Bootloader config not found at $loader_conf, skipping"
+    fi
+}
+
+configure_wireless() {
+    log "Configuring wireless regulatory domain..."
+    uncomment_config_lines "/etc/conf.d/wireless-regdom" \
+        "^#WIRELESS_REGDOM=\\\"UA\\\"" \
+        "" \
+        "Setting wireless regulatory domain to UA"
+}
+
+configure_system_services() {
+    log "Enabling system services..."
+    # Enable fstrim for SSD longevity
+    systemctl enable --now fstrim.timer
+    
+    # Network optimization
+    log "Configuring systemd-resolved..."
+    systemctl enable --now systemd-resolved.service
+    ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+    
+    log "Masking NetworkManager-wait-online..."
+    systemctl mask NetworkManager-wait-online.service
+    
+    # Time synchronization
+    log "Configuring time synchronization..."
+    systemctl enable --now systemd-timesyncd.service
+    
+    # Automatic mirror updates
+    log "Enabling automatic mirror updates..."
+    systemctl enable --now reflector.timer
+
+    # Bluetooth
+    log "Configuring Bluetooth..."
+    systemctl enable --now bluetooth.service
+    
+    # Firewall
+    log "Configuring Firewall (UFW)..."
+    systemctl enable --now ufw.service
+    ufw default deny incoming
+    ufw default allow outgoing
+    # Allow SSH if needed, otherwise comment out
+    # ufw allow ssh
+    ufw --force enable
+    
+    log "System services enabled"
+}
+
+configure_docker() {
+    log "Configuring Docker..."
+    
+    if ! command -v docker &> /dev/null; then
+        log_error "Docker is not installed"
+        return 1
+    fi
+    
+    log "Enabling and starting Docker service..."
+    systemctl enable --now docker.service
+    
+    log "Adding user $SUDO_USER to docker group..."
+    if ! usermod -aG docker "$SUDO_USER"; then
+        log_error "Failed to add user to docker group"
+        return 1
+    fi
+    
+    log "Docker configured successfully"
+}
+
 install_ohmyzsh() {
     log "Installing Oh My Zsh..."
     check_sudo_user
 
-    sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
+    # Get user's home directory
+    local user_home
+    user_home=$(eval echo "~$SUDO_USER")
+    
+    if [[ -d "$user_home/.oh-my-zsh" ]]; then
+        log "Oh My Zsh is already installed."
+    else
+        log "Installing Oh My Zsh for $SUDO_USER..."
+        sudo -u "$SUDO_USER" sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+        log "Oh My Zsh installed successfully."
+    fi
+    
+    # Install Oh My Zsh plugins
+    log "Installing Oh My Zsh plugins..."
+    
+    local zsh_custom="$user_home/.oh-my-zsh/custom"
+    local -A plugins=(
+        [zsh-autosuggestions]="https://github.com/zsh-users/zsh-autosuggestions.git"
+        [zsh-syntax-highlighting]="https://github.com/zsh-users/zsh-syntax-highlighting.git"
+    )
+    
+    for plugin in "${!plugins[@]}"; do
+        if [[ ! -d "$zsh_custom/plugins/$plugin" ]]; then
+            log "Installing $plugin..."
+            run_as_user git clone "${plugins[$plugin]}" "$zsh_custom/plugins/$plugin"
+            log "$plugin installed."
+        else
+            log "$plugin already installed."
+        fi
+    done
+    
+    # Configure plugins in .zshrc
+    log "Configuring Oh My Zsh plugins in .zshrc..."
+    local zshrc="$user_home/.zshrc"
+    
+    if [[ ! -f "$zshrc" ]]; then
+        log_error ".zshrc not found at $zshrc"
+        return 1
+    fi
+    
+    if grep -q "^plugins=(" "$zshrc"; then
+        run_as_user sed -i 's/^plugins=(.*/plugins=(z fzf git zsh-autosuggestions zsh-syntax-highlighting)/' "$zshrc"
+        log "Plugins configured in .zshrc"
+    else
+        log_error "Could not find plugins line in .zshrc"
+    fi
+    
+    log "Oh My Zsh plugins installed successfully."
 }
 
-# Main function
-main() {
-    log "Starting Arch Linux post-installation setup..."
-
-    local tooktime_start=$(date +%s)
+install_flutter() {
+    log "Installing Flutter SDK..."
+    check_sudo_user
     
+    local user_home
+    user_home=$(eval echo "~$SUDO_USER")
+    local flutter_dir="$user_home/Projects/dart/flutter"
+    
+    if [[ -d "$flutter_dir" ]]; then
+        log "Flutter already installed at $flutter_dir"
+        return 0
+    fi
+    
+    log "Creating Flutter directory structure..."
+    run_as_user mkdir -p "$user_home/Projects/dart"
+    
+    log "Cloning Flutter SDK..."
+    run_as_user git clone https://github.com/flutter/flutter.git -b stable "$flutter_dir" || {
+        log_error "Failed to clone Flutter repository"
+        return 1
+    }
+    
+    log "Running Flutter initial setup..."
+    run_as_user "$flutter_dir/bin/flutter" --version || {
+        log_error "Failed to initialize Flutter"
+        return 1
+    }
+    
+    log "Flutter SDK installed successfully at $flutter_dir"
+}
+
+configure_zshrc() {
+    log "Configuring .zshrc with eza and fzf settings..."
+    check_sudo_user
+    
+    local user_home
+    user_home=$(eval echo "~$SUDO_USER")
+    local zshrc="$user_home/.zshrc"
+    local custom_config="$user_home/.zsh_custom_config"
+    
+    if [[ ! -f "$zshrc" ]]; then
+        log_error ".zshrc not found at $zshrc"
+        return 1
+    fi
+
+    # Create custom config file
+    log "Creating custom zsh config at $custom_config..."
+    run_as_user tee "$custom_config" > /dev/null << 'EOF'
+# eza alias
+alias ls='eza --icons=always'
+alias l='eza -1 --icons=always'
+alias ll='eza -l --icons=always'
+alias la='eza -la --icons=always'
+alias lt='eza --tree --icons=always'
+alias llt='eza -l --tree --level=2 --icons=always'
+alias lh='eza -lh --header --icons=always'
+alias lg='eza -la --git --icons=always'
+alias lS='eza -1 --icons=always --sort=size'
+alias lM='eza -1 --icons=always --sort=modified'
+alias tre='eza --tree --icons=always --level=3 --git-ignore'
+
+# fzf configuration
+export FZF_DEFAULT_OPTS=" \
+  --layout=reverse \
+  --info=inline \
+  --height=40% \
+  --border \
+  --preview-window=right:60% \
+"
+
+export FZF_CTRL_R_OPTS=" \
+  --preview 'echo {}' \
+  --preview-window=down:3:wrap \
+  --sort \
+"
+
+if command -v fd &> /dev/null; then
+  export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
+  export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
+  export FZF_ALT_C_COMMAND='fd --type d --hidden --follow --exclude .git'
+else
+  export FZF_DEFAULT_COMMAND='find . -prune -o -type f -print -o -type l -print 2> /dev/null | sed '\''s/^\.\///'\'''
+  export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
+  export FZF_ALT_C_COMMAND='find . -prune -o -type d -print 2> /dev/null | sed '\''s/^\.\///'\'''
+fi
+
+export FZF_CTRL_T_OPTS=" \
+  --preview 'bat --color=always --style=numbers --line-range :500 {}' \
+  --bind '?:toggle-preview' \
+"
+
+export FZF_ALT_C_OPTS=" \
+  --preview 'tree -C {} | head -200' \
+  --bind '?:toggle-preview' \
+"
+
+# Environment variables
+export PATH=$HOME/Projects/dart/flutter/bin:$PATH
+export CHROME_EXECUTABLE=/usr/bin/google-chrome-stable
+export PATH="$PATH":"$HOME/.pub-cache/bin"
+export GOPATH=$HOME/.go
+EOF
+
+    # Source the custom config in .zshrc if not already there
+    if ! grep -q "source $custom_config" "$zshrc"; then
+        log "Adding source command to .zshrc..."
+        run_as_user tee -a "$zshrc" > /dev/null << EOF
+
+# Custom configuration
+if [[ -f "$custom_config" ]]; then
+    source "$custom_config"
+fi
+EOF
+    else
+        log "Custom config already sourced in .zshrc"
+    fi
+    
+    log ".zshrc configured successfully"
+}
+
+cleanup_cache() {
+    log "Cleaning up package cache..."
+    
+    # Clean pacman cache
+    if pacman -Scc --noconfirm; then
+        log "Pacman cache cleaned"
+    else
+        log_error "Failed to clean pacman cache"
+    fi
+    
+    # Clean yay cache if installed
+    if command -v yay &> /dev/null; then
+        check_sudo_user
+        if sudo -u "$SUDO_USER" yay -Scc --noconfirm; then
+            log "Yay cache cleaned"
+        else
+            log_error "Failed to clean yay cache"
+        fi
+    fi
+    
+    # Remove unused packages (orphans)
+    if pacman -Qtdq &> /dev/null; then
+        log "Removing orphaned packages..."
+        pacman -Rns --noconfirm $(pacman -Qtdq)
+        log "Orphaned packages removed"
+    else
+        log "No orphaned packages found"
+    fi
+
+    # Clean system journals
+    log "Cleaning system journals..."
+    journalctl --rotate
+    if journalctl --vacuum-time=1s; then
+        log "System journals cleaned"
+    else
+        log_error "Failed to clean system journals"
+    fi
+}
+
+#==============================================================================
+# Main function
+#==============================================================================
+
+main() {
+    local start_time=$(date +%s)
+    
+    log "Starting Arch Linux post-installation setup..."
+    
+    # Validation
     check_root
+    check_sudo_user
+    check_os
+    check_internet
+    
+    # System configuration
+    pacman_configure
+    configure_makepkg
     pacman_enable_multilib
+    update_mirrors
     pacman_update_system
+    
+    # Package management
     pacman_cleanup_packages
     pacman_install_main_packages
+    
+    # AUR setup
     install_yay
     install_aur_packages
     
+    # Shell configuration (after git and zsh are installed)
+    install_ohmyzsh
+    configure_zshrc
+    
+    # Development tools
+    install_flutter
+    configure_docker
+    configure_git
+    configure_bootloader
+    configure_system_services
+    configure_wireless
+    
+    # Cleanup
+    cleanup_cache
+    
+    # Summary
+    local end_time=$(date +%s)
+    local duration=$((end_time - start_time))
+    
+    log ""
+    log "=========================================="
     log "Post-installation completed successfully!"
-    local tooktime_end=$(date +%s)
-    local tooktime_duration=$((tooktime_end - tooktime_start))
-    log "Total time taken: ${tooktime_duration} seconds"
+    log "Total time: ${duration}s"
+    log "=========================================="
+    log ""
 }
 
 # Script entry point
