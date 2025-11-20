@@ -1009,37 +1009,37 @@ main() {
     check_os
     check_internet
     
-    # # System configuration
-    # pacman_configure
-    # configure_makepkg
-    # pacman_enable_multilib
-    # update_mirrors
-    # pacman_update_system
+    # System configuration
+    pacman_configure
+    configure_makepkg
+    pacman_enable_multilib
+    update_mirrors
+    pacman_update_system
     
-    # # Package management
-    # pacman_cleanup_packages
-    # pacman_install_main_packages
+    # Package management
+    pacman_cleanup_packages
+    pacman_install_main_packages
     
-    # # AUR setup
-    # install_yay
-    # install_aur_packages
+    # AUR setup
+    install_yay
+    install_aur_packages
     
-    # # Shell configuration (after git and zsh are installed)
-    # install_ohmyzsh
-    # configure_zshrc
+    # Shell configuration (after git and zsh are installed)
+    install_ohmyzsh
+    configure_zshrc
     
-    # # Common tools configuration
-    # configure_docker
-    # configure_git
-    # configure_bootloader
-    # configure_system_services
-    # configure_wireless
+    # Common tools configuration
+    configure_docker
+    configure_git
+    configure_bootloader
+    configure_system_services
+    configure_wireless
     
-    # # Development tools
-    # install_flutter
+    # Development tools
+    install_flutter
     
-    # # Cleanup
-    # cleanup_cache
+    # Cleanup
+    cleanup_cache
 
     # Apply theme
     apply_theme
