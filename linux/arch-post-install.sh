@@ -69,3 +69,5 @@ yay -S --noconfirm \
     android-studio \
     lmstudio \
     visual-studio-code-bin
+
+echo "Post-installation steps completed successfully."
