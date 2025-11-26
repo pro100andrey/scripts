@@ -144,6 +144,8 @@ MAIN_PACKAGES=(
     # Games
     lutris
     lib32-vulkan-utility-libraries
+    lib32-gnutls
+    lib32-mesa
 )
 
 CLEANUP_PACKAGES=(
