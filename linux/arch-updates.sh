@@ -82,7 +82,7 @@ function get_updates() {
         notify-send \
             -u "$urgency" \
             -i "$icon" \
-            -t 10000 \
+            -t 30000 \
             -a "System Updates" \
             "System Updates Available" \
             "Found $total_count update(s) ($count_arch Repo, $count_aur AUR):\n$package_list"
