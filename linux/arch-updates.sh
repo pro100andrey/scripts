@@ -65,15 +65,17 @@ function get_updates() {
 
         # Determine urgency based on number of updates
         local urgency="normal"
-        local icon="system-software-update"
+        local icon
 
         if ((total_count >= 50)); then
             urgency="critical"
-            icon="software-update-urgent"
+            icon="update-high"
         elif ((total_count >= 20)); then
             urgency="normal"
+            icon="update-medium"
         else
             urgency="low"
+            icon="update-low"
         fi
 
         # Send notification with improved formatting
