@@ -83,13 +83,18 @@ function get_updates() {
         fi
 
         # Send notification with improved formatting
-        notify-send \
+        RESPONSE=$(notify-send \
             -u "$urgency" \
             -i "$icon" \
-            -t 30000 \
+            --action="do_update=Update Now" \
             -a "System Updates" \
+            -t 5000 \
             "System Updates Available" \
-            "Found $total_count update(s) ($count_arch Repo, $count_aur AUR):\n$package_list"
+            "Found $total_count update(s) ($count_arch Repo, $count_aur AUR):\n$package_list")
+
+        if [[ "$RESPONSE" == "do_update" ]]; then
+            nohup konsole -e bash -c "sudo pacman -Syu" >/dev/null 2>&1 &
+        fi
     fi
 }
 
