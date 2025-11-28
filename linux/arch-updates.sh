@@ -1,6 +1,10 @@
 #!/bin/bash
 
 function get_updates() {
+    # Export necessary environment variables for cron
+    # This connects the script to your user's DBUS session
+    export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
+    export DISPLAY=:0
     # Check dependencies
     if ! command -v checkupdates >/dev/null 2>&1; then
         notify-send -u critical "Error" "Install 'pacman-contrib' for checkupdates"
