@@ -93,7 +93,7 @@ function get_updates() {
             "Found $total_count update(s) ($count_arch Repo, $count_aur AUR):\n$package_list")
 
         if [[ "$RESPONSE" == "do_update" ]]; then
-            nohup konsole -e bash -c "sudo pacman -Syu" >/dev/null 2>&1 &
+            nohup konsole -e bash -c "sudo pacman -Syu && paru -Syu" >/dev/null 2>&1 &
         fi
     fi
 }
