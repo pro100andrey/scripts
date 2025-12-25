@@ -143,6 +143,9 @@ MAIN_PACKAGES=(
 
     # Games
     lutris
+    wine 
+    winetricks 
+    kdialog
     lib32-vulkan-utility-libraries
     lib32-gnutls
     lib32-mesa
